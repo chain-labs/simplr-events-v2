@@ -1,12 +1,13 @@
 import { configureStore, Action, ThunkAction } from '@reduxjs/toolkit'
 import { createWrapper } from 'next-redux-wrapper'
 
+import { userReducer } from './user/reducers'
 import { walletReducer } from './wallet'
 
 const makeStore = () =>
   configureStore({
     reducer: {
-     
+      user: userReducer,
       wallet: walletReducer,
     },
     middleware: (getDefaultMiddleware) =>
