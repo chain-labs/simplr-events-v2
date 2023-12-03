@@ -124,6 +124,7 @@ export const pinFile = async (file, eventname) => {
 }
 
 export const getRelayStatus = async (taskId: string) => {
+  console.log(taskId)
   const endpoint = `${RELAY_TASK_CHECK_ENDPOINT}${taskId}`
   const res = await axios.get(endpoint)
   return res.data?.task

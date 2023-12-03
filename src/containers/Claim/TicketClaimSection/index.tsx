@@ -56,7 +56,7 @@ const TicketClaimSection = ({ query }) => {
     projectId: PARTICLE_PROJECT_ID,
     clientKey: PARTICLE_CLIENT_KEY,
     appId: PARTICLE_APP_ID,
-    chainId: ChainId.POLYGON_MAINNET,
+    chainId: ChainId.POLYGON_MUMBAI,
     wallet: {
       displayWalletEntry: true,
       defaultWalletEntryPosition: ParticleAuthModule.WalletEntryPosition.BR,
@@ -72,10 +72,7 @@ const TicketClaimSection = ({ query }) => {
       setName(userInfo?.name)
       const particleProvider = new ParticleProvider(particle.auth)
       console.log({ particleProvider })
-      const web3Provider = new ethers.providers.Web3Provider(
-        particleProvider,
-        'matic',
-      )
+      const web3Provider = new ethers.providers.Web3Provider(particleProvider)
       setProvider(web3Provider)
 
       const module_var = await ECDSAOwnershipValidationModule.create({
@@ -126,7 +123,7 @@ const TicketClaimSection = ({ query }) => {
         address: NFT_ADDRESS,
       },
     })
-
+    console.log(eventData)
     const eventOwnerAddress = eventData.data.simplrEvents[0].owner.address
 
     // Define access control conditions
@@ -200,39 +197,15 @@ const TicketClaimSection = ({ query }) => {
   return (
     <>
       <Head>
-        <title>Degen Diwali: Claim Now!</title>
+        <title>Claim your ticket</title>
         <meta
           name="description"
           content="Degen Diwali: Wishing you a Happy Dipawali! Claim to participate in Lucky Draw."
         />
       </Head>
-      <main
-        style={{
-          backgroundImage: `url('https://ik.imagekit.io/chainlabs/Degen%20Diwali/DALL_E%20Diwali%20Background_JKc4Mvk8Q.png?updatedAt=1699990295809')`,
-        }}
-        className="flex h-screen w-screen flex-col items-center justify-center bg-center"
-      >
-        <nav className="fixed top-0 left-0 w-screen bg-amber-400 px-[10%]">
-          <div className="relative h-20 w-40  ">
-            <Image
-              src="/assets/images/cl_logo.svg"
-              alt="cl_logo"
-              fill
-              className="rounded-lg object-contain"
-            />
-          </div>
-        </nav>
+      <main className="flex h-screen flex-col items-center justify-start bg-center">
         <div className="flex flex-col items-center">
-          <div className="relative h-40 w-40 ">
-            <Image
-              src=""
-              alt="artwork_img"
-              fill
-              className="rounded-lg object-cover"
-            />
-          </div>
-          <h1 className="mt-2 text-4xl text-black">Degen Diwali</h1>
-
+          <h1 className="mt-2 text-4xl text-black">Simplr Events V2</h1>
           <Minter
             address={address}
             smartAccount={smartAccount}
@@ -242,7 +215,6 @@ const TicketClaimSection = ({ query }) => {
             handleEncryptandPin={handleEncryptandPin}
             signer={signer}
           />
-          <p className="max-w-[200px] text-center">Hello from this side</p>
         </div>
       </main>
     </>

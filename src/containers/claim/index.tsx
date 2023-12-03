@@ -18,11 +18,15 @@ import { ethers } from 'ethers'
 import { useAppSelector } from '@/redux/hooks'
 import { walletSelector } from '@/redux/wallet'
 import { Wallet } from 'akar-icons'
+import { toast, ToastContainer } from 'react-toastify'
 
 const checkQuery = (query: QueryProps): boolean => {
   const { lastname, firstname, emailid, eventname, batchid } = query
   if (lastname && firstname && emailid && eventname && batchid) return true
-  else return false
+  else {
+    toast.error('Invalid URL')
+    return false
+  }
 }
 
 const ClaimComponent = ({ query }: { query: QueryProps }) => {
@@ -97,19 +101,31 @@ const ClaimComponent = ({ query }: { query: QueryProps }) => {
                   Time to seize your digital bragging rights!
                 </h1>
               }
-              else={
-                <div>
-                  <div className="text-center text-5xl font-bold text-black">
-                    Claim {TOKEN_NAME}
-                  </div>
-                </div>
-              }
             />
           </div>
           <If
             condition={checkQuery(query)}
             then={<TicketClaimSection query={query} />}
-            else={<TicketsSection />}
+            else={
+              <div>
+                <div className="text-center text-5xl font-bold text-black">
+                  URL is incorrect
+                </div>
+                <ToastContainer
+                  containerId={'toaster'}
+                  position="top-right"
+                  autoClose={5000}
+                  hideProgressBar={false}
+                  newestOnTop={false}
+                  closeOnClick
+                  rtl={false}
+                  pauseOnFocusLoss
+                  draggable
+                  pauseOnHover
+                  theme="dark"
+                />
+              </div>
+            }
           />
         </div>
         d

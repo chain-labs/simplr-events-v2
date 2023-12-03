@@ -16,13 +16,23 @@ import { useCallback, useEffect, useState } from 'react'
 import { toast, ToastContainer } from 'react-toastify'
 import 'react-toastify/dist/ReactToastify.css'
 import contracts from '@/contracts.json'
-import { FETCH_TREE_CID, getMerkleHashes, hashQueryData } from '../utils'
+import {
+  ClaimTicketRequestBody,
+  FETCH_TREE_CID,
+  delay,
+  getMerkleHashes,
+  getRelayStatus,
+  hashQueryData,
+  sendInfoToServer,
+} from '../utils'
 import MerkleTree from 'merkletreejs'
 import axios from 'axios'
 import {
   GelatoRelay,
   SponsoredCallERC2771Request,
 } from '@gelatonetwork/relay-sdk'
+import { client } from '@/components/ApolloClient'
+import FETCH_HOLDER_TICKETS from '@/graphql/query/fetchHolderTickets'
 
 interface Props {
   smartAccount: BiconomySmartAccountV2 | null
@@ -47,6 +57,7 @@ const Minter: React.FC<Props> = ({
 
   const [minted, setMinted] = useState<boolean>(false)
   const { chainId } = getNetwork()
+  const [taskId, setTaskId] = useState('')
 
   useEffect(() => {
     FETCH_TREE_CID(query?.batchid).then((data) => {
@@ -78,6 +89,7 @@ const Minter: React.FC<Props> = ({
 
         const contract = new ethers.Contract(targetAddress, abi, signer)
         console.log(query)
+        console.log('Provider:', provider)
 
         console.log({
           address: address,
@@ -110,9 +122,9 @@ const Minter: React.FC<Props> = ({
           GELATO_API_KEY,
         )
         console.log(relayResponse)
-        toast.success('Transaction successful')
 
-        // setTaskId(relayResponse.taskId)
+        setTaskId(relayResponse.taskId)
+        handleClaimTicket(relayResponse.taskId)
         // setCurrentStep(CLAIM_STEPS.CLAIM_TICKET)
         // setMinting(false)
       } catch (err) {
@@ -123,31 +135,73 @@ const Minter: React.FC<Props> = ({
     }
   }, [smartAccount, provider, address])
 
+  const handleClaimTicket = async (taskid) => {
+    let confirmation = false
+    while (!confirmation) {
+      getRelayStatus(taskid).then((task) => {
+        console.log({ task })
+        const taskStatus = task?.taskState
+        if (taskStatus === 'CheckPending') {
+          confirmation = false
+        } else {
+          if (taskStatus === 'ExecSuccess') {
+            confirmation = true
+            client
+              .query({
+                query: FETCH_HOLDER_TICKETS,
+                variables: {
+                  id: address,
+                  first: 1,
+                },
+              })
+              .then((res) => {
+                const tokenId = res.data?.holders[0]?.tickets[0].tokenId
+                const body: ClaimTicketRequestBody = {
+                  accountAddress: address,
+                  claimTimestamp: `${Math.abs(
+                    new Date(task?.executionDate).getTime() / 1000,
+                  )}`,
+                  claimTrx: task?.transactionHash,
+                  email: query.emailid,
+                  firstName: query.firstname,
+                  lastName: query.lastname,
+                  eventName: query.eventname,
+                  tokenId: parseInt(tokenId),
+                  isSubscribed: true,
+                  batchId: parseInt(query.batchid),
+                  contractAddress: CONTRACT_ADDRESS,
+                }
+                try {
+                  sendInfoToServer(body)
+                  toast.success('Ticket Claimed Successfully')
+                } catch (err) {
+                  toast.error('Transaction Failed! Try Again!')
+                  console.log('Error sending info to server', { err })
+                }
+              })
+          } else if (taskStatus === 'Cancelled') {
+            toast.error('Transaction Failed! Try Again!')
+            confirmation = true
+          }
+        }
+      })
+      await delay(2000)
+    }
+  }
+
   useEffect(() => {
     if (smartAccount && provider && address) handleMint()
   }, [handleMint, smartAccount, provider, address])
 
   return (
     <>
-      {!minted ? (
-        <button className="my-2 bg-amber-600" onClick={connect}>
-          <p className="text-md font-['Cinzel'] font-semibold">
-            Claim your Gift
+      <div className="mt-2">
+        <button className="rounded bg-blue-600 p-2" onClick={connect}>
+          <p className="text-md font-['Cinzel'] font-semibold text-white">
+            Login & Claim your ticket
           </p>
         </button>
-      ) : (
-        <a
-          href={`https://opensea.io/${address}`}
-          target="_blank"
-          rel="noreferrer"
-        >
-          <button className="my-2 bg-amber-600">
-            <p className="text-md font-['Cinzel'] font-semibold text-red-600">
-              View your Gift
-            </p>
-          </button>
-        </a>
-      )}
+      </div>
       <ToastContainer
         containerId={'toaster'}
         position="top-right"
