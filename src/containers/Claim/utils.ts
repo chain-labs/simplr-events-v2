@@ -53,10 +53,11 @@ export const verifyQueryDetails = async (query: QueryProps, cid: string) => {
   } else return false
 }
 
-export const getSignature = async (wallet: WalletState) => {
+export const getSignature = async (provider, address) => {
+  console.log(provider, address)
   const authSig = await LitJsSdk.signAndSaveAuthMessage({
-    web3: wallet.provider,
-    account: wallet.user?.address,
+    web3: provider,
+    account: address,
     chainId: TEST_NETWORK ? 80001 : 137,
   })
   return authSig

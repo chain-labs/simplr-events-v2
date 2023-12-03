@@ -42,6 +42,7 @@ const ClaimSection = ({
   const [secretHash, setSecretHash] = useState(null)
   const [taskId, setTaskId] = useState('')
   const [mintFailed, setMintFailed] = useState(false)
+  const [account, setAccount] = useState<string>()
 
   const wallet = useAppSelector(walletSelector)
 

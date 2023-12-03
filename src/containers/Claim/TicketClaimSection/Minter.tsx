@@ -1,42 +1,37 @@
-import { NFT_ADDRESS } from '@/utils/constants'
+import {
+  CONTRACT_ADDRESS,
+  GELATO_API_KEY,
+  NFT_ADDRESS,
+  SERVER_ENDPOINT,
+  getNetwork,
+} from '@/utils/constants'
 import { BiconomySmartAccountV2 } from '@biconomy/account'
 import {
   IHybridPaymaster,
   PaymasterMode,
   SponsorUserOperationDto,
 } from '@biconomy/paymaster'
-import { BigNumber, ethers } from 'ethers'
+import { BigNumber, ethers, providers } from 'ethers'
 import { useCallback, useEffect, useState } from 'react'
 import { toast, ToastContainer } from 'react-toastify'
 import 'react-toastify/dist/ReactToastify.css'
-
-const nftAddress = NFT_ADDRESS
-const abi = [
-  {
-    inputs: [
-      {
-        internalType: 'address',
-        name: '_buyer',
-        type: 'address',
-      },
-      {
-        internalType: 'uint256',
-        name: '_quantity',
-        type: 'uint256',
-      },
-    ],
-    name: 'buy',
-    outputs: [],
-    stateMutability: 'payable',
-    type: 'function',
-  },
-]
+import contracts from '@/contracts.json'
+import { FETCH_TREE_CID, getMerkleHashes, hashQueryData } from '../utils'
+import MerkleTree from 'merkletreejs'
+import axios from 'axios'
+import {
+  GelatoRelay,
+  SponsoredCallERC2771Request,
+} from '@gelatonetwork/relay-sdk'
 
 interface Props {
   smartAccount: BiconomySmartAccountV2 | null
   address: string | null
-  provider: ethers.providers.Provider | null
+  provider: ethers.providers.Web3Provider | null
   connect: () => void
+  query: object
+  handleEncryptandPin: () => void
+  signer: providers.JsonRpcSigner
 }
 
 const Minter: React.FC<Props> = ({
@@ -44,92 +39,86 @@ const Minter: React.FC<Props> = ({
   address,
   provider,
   connect,
+  query,
+  handleEncryptandPin,
+  signer,
 }) => {
+  const [proofs, setProofs] = useState(null)
+
   const [minted, setMinted] = useState<boolean>(false)
+  const { chainId } = getNetwork()
+
+  useEffect(() => {
+    FETCH_TREE_CID(query?.batchid).then((data) => {
+      const hashCID = data.batches[0].cid
+      getMerkleHashes(hashCID).then((hashes) => {
+        const leafs = hashes.map((entry) => ethers.utils.keccak256(entry))
+        const tree = new MerkleTree(leafs, ethers.utils.keccak256, {
+          sortPairs: true,
+        })
+        const leaf = ethers.utils.keccak256(hashQueryData(query))
+        const proofs = tree.getHexProof(leaf)
+        setProofs(proofs)
+      })
+    })
+  }, [])
 
   const handleMint = useCallback(async () => {
     if (smartAccount && provider && address) {
-      const contract = new ethers.Contract(nftAddress, abi, provider)
+      const secretHash = handleEncryptandPin()
       try {
-        toast.info('Wrapping up your Gift....', {
-          position: 'top-right',
-          autoClose: 15000,
-          hideProgressBar: false,
-          closeOnClick: true,
-          pauseOnHover: true,
-          draggable: true,
-          progress: undefined,
-          theme: 'dark',
+        const { chainId } = getNetwork()
+        console.log(chainId)
+        const targetAddress = NFT_ADDRESS
+        const abi = [
+          contracts?.[chainId][0]?.contracts?.['SimplrEvents']?.['abi'].find(
+            (el) => el.name === 'mintTicket',
+          ),
+        ]
+
+        const contract = new ethers.Contract(targetAddress, abi, signer)
+        console.log(query)
+
+        console.log({
+          address: address,
+          batchid: BigNumber.from(query?.batchid),
+          hashedQuery: hashQueryData(query),
+          hash: secretHash,
+          proofs: proofs,
         })
-        const minTx = await contract.populateTransaction.buy(address, 1, {
-          value: BigNumber.from(0),
-        })
-        const tx1 = {
-          to: nftAddress,
-          data: minTx.data,
-        }
-        console.log({ tx1, smartAccount })
-
-        const userOp = await smartAccount.buildUserOp([tx1], {
-          overrides: {
-            maxFeePerGas: BigNumber.from(1),
-            maxPriorityFeePerGas: BigNumber.from(1),
-          },
-        })
-        console.log({ userOp, smartAccount })
-
-        const biconomyPaymaster =
-          smartAccount.paymaster as IHybridPaymaster<SponsorUserOperationDto>
-        console.log({ biconomyPaymaster })
-
-        const paymasterServiceData: SponsorUserOperationDto = {
-          mode: PaymasterMode.SPONSORED,
-          smartAccountInfo: {
-            name: 'BICONOMY',
-            version: '2.0.0',
-          },
-        }
-        console.log({ paymasterServiceData })
-
-        const paymasterAndDataResponse =
-          await biconomyPaymaster.getPaymasterAndData(
-            userOp,
-            paymasterServiceData,
-          )
-        console.log({ paymasterAndDataResponse })
-
-        userOp.paymasterAndData = paymasterAndDataResponse.paymasterAndData
-        console.log({ smartAccount, paymasterAndDataResponse, userOp })
-        const userOpResponse = await smartAccount.sendUserOp(userOp)
-        console.log({ userOpResponse })
-        const { receipt } = await userOpResponse.wait()
-        setMinted(true)
-        toast.success(
-          `🪔✨ Your gift has sparked joy! 🎁 May it light up your loved one's Diwali. ✨`,
-          {
-            position: 'top-right',
-            autoClose: 18000,
-            hideProgressBar: false,
-            closeOnClick: true,
-            pauseOnHover: true,
-            draggable: true,
-            progress: undefined,
-            theme: 'dark',
-          },
+        const { data } = await contract.populateTransaction.mintTicket(
+          address,
+          BigNumber.from(query?.batchid),
+          hashQueryData(query),
+          secretHash,
+          proofs,
         )
-        console.log({ txHash: receipt.transactionHash })
+
+        const request: SponsoredCallERC2771Request = {
+          chainId: parseInt(chainId),
+          target: targetAddress,
+          data,
+          user: address,
+        }
+        const relay = new GelatoRelay()
+
+        // const pingRes = await axios.get(`${SERVER_ENDPOINT}/`)
+        // if (pingRes.data === 'Server is Running') {
+        const relayResponse = await relay.sponsoredCallERC2771(
+          request,
+          provider,
+          GELATO_API_KEY,
+        )
+        console.log(relayResponse)
+        toast.success('Transaction successful')
+
+        // setTaskId(relayResponse.taskId)
+        // setCurrentStep(CLAIM_STEPS.CLAIM_TICKET)
+        // setMinting(false)
       } catch (err) {
-        console.error({ err })
-        toast.error(`Something Went Wrong!`, {
-          position: 'top-right',
-          autoClose: 18000,
-          hideProgressBar: false,
-          closeOnClick: true,
-          pauseOnHover: true,
-          draggable: true,
-          progress: undefined,
-          theme: 'dark',
-        })
+        console.log('Transaction Error')
+        console.log(err)
+        toast.error('Something went wrong! Try again')
       }
     }
   }, [smartAccount, provider, address])

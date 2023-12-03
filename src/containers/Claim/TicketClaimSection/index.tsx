@@ -5,15 +5,20 @@ import {
   PARTICLE_CLIENT_KEY,
   PARTICLE_APP_ID,
   PAYMASTER_URL,
+  CONTRACT_ADDRESS,
+  NFT_ADDRESS,
+  SIMPLR_ADDRESS,
 } from '@/utils/constants'
+import LitJsSdk from '@lit-protocol/sdk-browser'
+import SignatureStep from '../TicketClaimSection/ClaimSection/SignatureStep'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { IBundler, Bundler } from '@biconomy/bundler'
 import {
   BiconomySmartAccountV2,
   DEFAULT_ENTRYPOINT_ADDRESS,
 } from '@biconomy/account'
-import { ethers } from 'ethers'
+import { ethers, providers } from 'ethers'
 import { ChainId } from '@biconomy/core-types'
 import { IPaymaster, BiconomyPaymaster } from '@biconomy/paymaster'
 import {
@@ -22,16 +27,30 @@ import {
 } from '@biconomy/modules'
 import Image from 'next/image'
 import Minter from './Minter'
+import {
+  encryptRawData,
+  getAccessControlConditions,
+  getSignature,
+  pinFile,
+  pinJson,
+} from '../utils'
+import { FETCH_EVENT_OWNER_QUERY } from '@/graphql/query/fetchEventOwnerAddress'
+import { client } from '@/components/ApolloClient'
+import { CLAIM_STEPS } from './ClaimSection/constants'
 
-export default function Home() {
+const TicketClaimSection = ({ query }) => {
+  const [signature, setSignature] = useState()
+  const [secretHash, setSecretHash] = useState(null)
+
   const [address, setAddress] = useState<string>('')
   const [name, setName] = useState<string>()
   const [loading, setLoading] = useState<boolean>(false)
   const [smartAccount, setSmartAccount] =
     useState<BiconomySmartAccountV2 | null>(null)
-  const [provider, setProvider] = useState<ethers.providers.Provider | null>(
-    null,
-  )
+  const [provider, setProvider] =
+    useState<ethers.providers.Web3Provider | null>(null)
+  const [currentStep, setCurrentStep] = useState(CLAIM_STEPS.GET_SIGNATURE)
+  const [signer, setSigner] = useState<providers.JsonRpcSigner>()
 
   const particle = new ParticleAuthModule.ParticleNetwork({
     projectId: PARTICLE_PROJECT_ID,
@@ -63,17 +82,18 @@ export default function Home() {
         signer: web3Provider.getSigner(),
         moduleAddress: DEFAULT_ECDSA_OWNERSHIP_MODULE,
       })
+      console.log(module_var.signer)
+      setSigner(module_var.signer)
 
       const biconomySmartAccount = await BiconomySmartAccountV2.create({
-        chainId: ChainId.POLYGON_MAINNET,
-        bundler: bundler,
-        paymaster: paymaster,
+        chainId: ChainId.POLYGON_MUMBAI,
+
         entryPointAddress: DEFAULT_ENTRYPOINT_ADDRESS,
         defaultValidationModule: module_var,
         activeValidationModule: module_var,
       })
-
-      setAddress(await biconomySmartAccount.getAccountAddress())
+      const accounts = await web3Provider.listAccounts()
+      setAddress(accounts[0])
       console.log({ biconomySmartAccount })
 
       setSmartAccount(biconomySmartAccount)
@@ -84,16 +104,99 @@ export default function Home() {
   }
 
   const bundler: IBundler = new Bundler({
-    bundlerUrl: 'https://bundler.particle.network?chainId=137',
-    chainId: ChainId.POLYGON_MAINNET,
+    bundlerUrl: 'https://bundler.particle.network?chainId=80001',
+    chainId: ChainId.POLYGON_MUMBAI,
     entryPointAddress: DEFAULT_ENTRYPOINT_ADDRESS,
   })
-
-  console.log({ PAYMASTER_URL })
 
   const paymaster: IPaymaster = new BiconomyPaymaster({
     paymasterUrl: PAYMASTER_URL,
   })
+
+  const handleEncryptandPin = async () => {
+    console.log(provider, address)
+    // Initialize Lit Protocol SDK
+    const litClient = new LitJsSdk.LitNodeClient()
+    await litClient.connect()
+
+    // Fetch event owner address from Subgrqph to be used for access control condition
+    const eventData = await client.query({
+      query: FETCH_EVENT_OWNER_QUERY,
+      variables: {
+        address: NFT_ADDRESS,
+      },
+    })
+
+    const eventOwnerAddress = eventData.data.simplrEvents[0].owner.address
+
+    // Define access control conditions
+    const accessControlConditions = getAccessControlConditions([
+      address,
+      eventOwnerAddress,
+      SIMPLR_ADDRESS,
+    ])
+
+    // Creating raw data as object for encryption
+    const rawData = {
+      emailid: query.emailid,
+      firstname: query.firstname,
+      lastnama: query.lastname,
+      batchid: query.batchid,
+    }
+
+    // Encrypt raw user data using Lit Protocol
+    const { encryptedString, symmetricKey } = await encryptRawData(rawData)
+
+    const signature = await getSignature(provider, address)
+    console.log(signature)
+
+    // Create encrypted key for decryption later
+    const encryptedSymmetricKey = await litClient.saveEncryptionKey({
+      accessControlConditions,
+      symmetricKey,
+      authSig: signature,
+      chain: 'mumbai',
+    })
+
+    // Pinning encrypted string file to NFT Storage
+    const encryptedStringRes = await pinFile(encryptedString, query.eventname)
+
+    const encryptedStringHash = encryptedStringRes.data.IpfsHash
+
+    // Define Secret object used for decryption of data
+    const secret = {
+      description: `A secret was sealed when claiming ticket from ${
+        query.eventname
+      } on ${Date.now()}`,
+      name: query.eventname,
+      external_url: '',
+      image: new Blob(),
+      image_description: 'Photo by Folco Masi on Unsplash',
+      secret: {
+        accessControlConditions: accessControlConditions,
+        encryptedSymmetricKey: LitJsSdk.uint8arrayToString(
+          encryptedSymmetricKey,
+          'base16',
+        ),
+        encryptedStringHash: encryptedStringHash,
+      },
+      attributes: [
+        {
+          display_type: 'date',
+          trait_type: 'sealed on',
+          value: Math.floor(Date.now() / 1000),
+        },
+      ],
+    }
+
+    // Pinning the secret to NFT Storage
+    const secretHash = await pinJson(secret)
+    setSecretHash(secretHash)
+    return secretHash
+
+    // Move to next step
+    // setCurrentStep(CLAIM_STEPS.MINT_TICKET)
+  }
   return (
     <>
       <Head>
@@ -135,6 +238,9 @@ export default function Home() {
             smartAccount={smartAccount}
             provider={provider}
             connect={connect}
+            query={query}
+            handleEncryptandPin={handleEncryptandPin}
+            signer={signer}
           />
           <p className="max-w-[200px] text-center">Hello from this side</p>
         </div>
@@ -142,3 +248,4 @@ export default function Home() {
     </>
   )
 }
+export default TicketClaimSection
