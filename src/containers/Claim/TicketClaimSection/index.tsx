@@ -71,9 +71,11 @@ const TicketClaimSection = ({ query }) => {
       console.log('Logged in user:', userInfo)
       setName(userInfo?.name)
       const particleProvider = new ParticleProvider(particle.auth)
-      console.log({ particleProvider })
+      console.log('Particle Provider', particleProvider)
+      console.log(particle.getChain())
       const web3Provider = new ethers.providers.Web3Provider(particleProvider)
       setProvider(web3Provider)
+      console.log('web3Provider', web3Provider)
 
       const module_var = await ECDSAOwnershipValidationModule.create({
         signer: web3Provider.getSigner(),
@@ -84,7 +86,8 @@ const TicketClaimSection = ({ query }) => {
 
       const biconomySmartAccount = await BiconomySmartAccountV2.create({
         chainId: ChainId.POLYGON_MUMBAI,
-
+        bundler: bundler,
+        paymaster: paymaster,
         entryPointAddress: DEFAULT_ENTRYPOINT_ADDRESS,
         defaultValidationModule: module_var,
         activeValidationModule: module_var,
@@ -101,7 +104,7 @@ const TicketClaimSection = ({ query }) => {
   }
 
   const bundler: IBundler = new Bundler({
-    bundlerUrl: 'https://bundler.particle.network?chainId=80001',
+    bundlerUrl: 'https://bundler.particle.network/?chainId=80001',
     chainId: ChainId.POLYGON_MUMBAI,
     entryPointAddress: DEFAULT_ENTRYPOINT_ADDRESS,
   })
@@ -194,6 +197,7 @@ const TicketClaimSection = ({ query }) => {
     // Move to next step
     // setCurrentStep(CLAIM_STEPS.MINT_TICKET)
   }
+
   return (
     <>
       <Head>

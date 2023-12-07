@@ -25,7 +25,7 @@ interface Configs {
 const useBiconomyWallet = (options: Configs) => {
   const [provider, setProvider] = useState<any>()
   const [account, setAccount] = useState<string>()
-  const [smartAccount, setSmartAccount] = useState<SmartAccount | null>(null)
+  const [smartAccount, setSmartAccount] = useState<BiconomySmartAccountV2 | null>(null)
   const [scwAddress, setScwAddress] = useState('')
   const [scwLoading, setScwLoading] = useState(false)
   const [socialLoginSDK, setSocialLoginSDK] = useState<SocialLogin | null>(null)

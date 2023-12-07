@@ -23,7 +23,8 @@
     "next-env.d.ts",
     "**/*.ts",
     "**/*.tsx",
-    "src/containers/Claim/TicketClaimSection/ConnectWallet"
+    "src/containers/Claim/TicketClaimSection/ConnectWallet",
+    "src/pages/safe/safe.jsx"
   ],
   "exclude": ["node_modules"]
 }
