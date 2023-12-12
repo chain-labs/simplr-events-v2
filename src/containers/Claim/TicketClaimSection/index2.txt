@@ -7,13 +7,13 @@ import {
   CONTRACT_ADDRESS,
   NFT_ADDRESS,
   SIMPLR_ADDRESS,
-  ALCHEMY_API_KEY,
 } from '@/utils/constants'
 import LitJsSdk from '@lit-protocol/sdk-browser'
 import SignatureStep from '../TicketClaimSection/ClaimSection/SignatureStep'
-import { encodeFunctionData } from 'viem'
 
 import { useEffect, useState } from 'react'
+
+import { ethers, providers } from 'ethers'
 
 import Image from 'next/image'
 import Minter from './Minter'
@@ -24,67 +24,64 @@ import {
   pinFile,
   pinJson,
 } from '../utils'
-import { ethers, providers } from 'ethers'
-
 import { FETCH_EVENT_OWNER_QUERY } from '@/graphql/query/fetchEventOwnerAddress'
 import { client } from '@/components/ApolloClient'
 import { CLAIM_STEPS } from './ClaimSection/constants'
 import { AlchemyProvider } from '@alchemy/aa-alchemy'
-import {
-  LightSmartContractAccount,
-  getDefaultLightAccountFactoryAddress,
-} from '@alchemy/aa-accounts'
 import { polygonMumbai } from 'viem/chains'
-import { createWeb3AuthSigner } from './auth'
+import { optimismGoerli, optimism } from '@wagmi/core/chains'
+import { alchemyProvider } from '@wagmi/core/providers/alchemy'
+import { publicProvider } from '@wagmi/core/providers/public'
+import type { Web3Modal } from '@web3modal/html'
+import { Web3AuthConnector } from '@web3auth/web3auth-wagmi-connector'
+import { Web3AuthNoModal } from '@web3auth/no-modal'
+import { EthereumPrivateKeyProvider } from '@web3auth/ethereum-provider'
+import { OpenloginAdapter } from '@web3auth/openlogin-adapter'
+import type { TorusWalletConnectorPlugin } from '@web3auth/torus-wallet-connector-plugin'
+import {
+  CHAIN_NAMESPACES,
+  WALLET_ADAPTERS,
+  ADAPTER_EVENTS,
+} from '@web3auth/base'
+import {
+  WalletClientSigner,
+  type SmartAccountSigner,
+  getDefaultEntryPointAddress,
+} from '@alchemy/aa-core'
+import { createWalletClient, custom } from 'viem'
 
 const TicketClaimSection = ({ query }) => {
   const [signature, setSignature] = useState()
   const [secretHash, setSecretHash] = useState(null)
 
+  const [address, setAddress] = useState<string>('')
   const [name, setName] = useState<string>()
   const [loading, setLoading] = useState<boolean>(false)
-
-  const [currentStep, setCurrentStep] = useState(CLAIM_STEPS.GET_SIGNATURE)
+  const [smartAccount, setSmartAccount] = useState(null)
   const [provider, setProvider] =
     useState<ethers.providers.Web3Provider | null>(null)
+  const [currentStep, setCurrentStep] = useState(CLAIM_STEPS.GET_SIGNATURE)
   const [signer, setSigner] = useState<providers.JsonRpcSigner>()
-  const [address, setAddress] = useState<string>('')
+  const chain = polygonMumbai
 
   const connect = async () => {
-    // try {
-    const chain = polygonMumbai
-    const owner = await createWeb3AuthSigner()
-    const provider = new AlchemyProvider({
-      apiKey: ALCHEMY_API_KEY,
-      chain: chain,
-    })
-    const connectedProvider = provider.connect(
-      (rpcClient) =>
-        new LightSmartContractAccount({
-          chain: chain,
-          owner: owner,
-          factoryAddress: getDefaultLightAccountFactoryAddress(chain),
-          rpcClient,
-        }),
-    )
-    // const address = await connectedProvider.getAddress()
-    // console.log(address)
-    const web3provider = new ethers.providers.Web3Provider(provider)
-    console.log(web3provider)
-    setProvider(web3provider)
-    const signer = await web3provider.getSigner()
-    console.log('SIGNER:', signer)
-    setSigner(signer)
-    const address = await connectedProvider.getAddress()
-    console.log(address)
-    setAddress(address)
-
-    // const address = await owner.getAuthDetails()
-    // console.log(address)
-
-    // } catch (error) {
-    //   console.log(error)
-    // }
+    try {
+      const provider = new AlchemyProvider({
+        apiKey: 'RXxumMYdznJ3D8SC4HGiEG7tOANSzISR',
+        chain,
+      }).connect(
+        async (rpcClient) =>
+          new LightSmartContractAccount({
+            entryPointAddress: getDefaultEntryPointAddress(chain),
+            chain: rpcClient.chain,
+            owner: await createMagicSigner(),
+            factoryAddress: getDefaultLightAccountFactoryAddress(chain),
+            rpcClient,
+          }),
+      )
+    } catch (error) {
+      console.log(error)
+    }
   }
 
   const handleEncryptandPin = async () => {
@@ -186,7 +183,7 @@ const TicketClaimSection = ({ query }) => {
           <h1 className="mt-2 text-4xl text-black">Simplr Events V2</h1>
           <Minter
             address={address}
-            // smartAccount={smartAccount}
+            smartAccount={smartAccount}
             provider={provider}
             connect={connect}
             query={query}

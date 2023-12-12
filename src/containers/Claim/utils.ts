@@ -55,12 +55,16 @@ export const verifyQueryDetails = async (query: QueryProps, cid: string) => {
 
 export const getSignature = async (provider, address) => {
   console.log(provider, address)
-  const authSig = await LitJsSdk.signAndSaveAuthMessage({
-    web3: provider,
-    account: address,
-    chainId: TEST_NETWORK ? 80001 : 137,
-  })
-  return authSig
+  try {
+    const authSig = await LitJsSdk.signAndSaveAuthMessage({
+      web3: provider,
+      account: address,
+      chainId: TEST_NETWORK ? 80001 : 137,
+    })
+    return authSig
+  } catch (err) {
+    console.log(err)
+  }
 }
 
 export const encryptRawData = async (data) => {

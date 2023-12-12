@@ -21,6 +21,8 @@ export const NFT_STORAGE_TOKEN = process.env.NEXT_PUBLIC_NFT_STORAGE_TOKEN
 
 export const GELATO_API_KEY = process.env.NEXT_PUBLIC_GELATO_API_KEY
 
+export const ALCHEMY_API_KEY = process.env.NEXT_PUBLIC_ALCHEMY_API_KEY
+
 export const TEST_NETWORK = toBoolean(process.env.NEXT_PUBLIC_TEST_NETWORK)
 
 export const getNetwork = (): {
