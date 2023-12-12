@@ -1,5 +1,9 @@
 import Head from 'next/head'
-import { ParticleAuthModule, ParticleProvider } from '@biconomy/particle-auth'
+import {
+  SafeAuthPack,
+  SafeAuthConfig,
+  SafeAuthInitOptions,
+} from '@safe-global/auth-kit'
 import {
   PARTICLE_PROJECT_ID,
   PARTICLE_CLIENT_KEY,
@@ -11,6 +15,7 @@ import {
 } from '@/utils/constants'
 import LitJsSdk from '@lit-protocol/sdk-browser'
 import SignatureStep from '../TicketClaimSection/ClaimSection/SignatureStep'
+import { EthersAdapter } from '@safe-global/protocol-kit'
 
 import { useEffect, useState } from 'react'
 import { IBundler, Bundler } from '@biconomy/bundler'
@@ -37,6 +42,7 @@ import {
 import { FETCH_EVENT_OWNER_QUERY } from '@/graphql/query/fetchEventOwnerAddress'
 import { client } from '@/components/ApolloClient'
 import { CLAIM_STEPS } from './ClaimSection/constants'
+import { SafeFactory } from '@safe-global/protocol-kit'
 
 const TicketClaimSection = ({ query }) => {
   const [signature, setSignature] = useState()
@@ -48,59 +54,88 @@ const TicketClaimSection = ({ query }) => {
   const [smartAccount, setSmartAccount] =
     useState<BiconomySmartAccountV2 | null>(null)
   const [provider, setProvider] =
-    useState<ethers.providers.Web3Provider | null>(null)
+    useState<ethers.providers.JsonRpcProvider | null>(null)
   const [currentStep, setCurrentStep] = useState(CLAIM_STEPS.GET_SIGNATURE)
   const [signer, setSigner] = useState<providers.JsonRpcSigner>()
 
-  const particle = new ParticleAuthModule.ParticleNetwork({
-    projectId: PARTICLE_PROJECT_ID,
-    clientKey: PARTICLE_CLIENT_KEY,
-    appId: PARTICLE_APP_ID,
-    chainId: ChainId.POLYGON_MUMBAI,
-    wallet: {
-      displayWalletEntry: true,
-      defaultWalletEntryPosition: ParticleAuthModule.WalletEntryPosition.BR,
+  const safeAuthInitOptions: SafeAuthInitOptions = {
+    enableLogging: true,
+    buildEnv: 'testing',
+    chainConfig: {
+      chainId: '0x13881',
+      rpcTarget: `https://gnosis.drpc.org`,
     },
-  })
+  }
 
   const connect = async () => {
     try {
-      setLoading(true)
-      const userInfo = await particle.auth.login()
+      const safeAuthPack = new SafeAuthPack()
+      await safeAuthPack.init(safeAuthInitOptions)
+      // The signIn() method returns the user's Ethereum address and the associated Safe addresses
+      // The `await` will last until the user is authenticated. Therefore, it will be active while the authentication popup is being displayed.
+      const authKitSignData = await safeAuthPack.signIn()
+      console.log('AUTH KIT DATA:', authKitSignData)
+      const web3provider = new ethers.providers.Web3Provider(
+        safeAuthPack.getProvider(),
+      )
+      const signer = web3provider.getSigner()
+      setProvider(web3provider)
+      console.log('WEb Provider:', web3provider)
+      console.log('SIGNER:', signer)
+      // const accounts = await web3provider.listAccounts()
+      setAddress(authKitSignData.eoa)
+      // console.log(accounts[0])
 
-      console.log('Logged in user:', userInfo)
-      setName(userInfo?.name)
-      const particleProvider = new ParticleProvider(particle.auth)
-      console.log('Particle Provider', particleProvider)
-      console.log(particle.getChain())
-      const web3Provider = new ethers.providers.Web3Provider(particleProvider)
-      setProvider(web3Provider)
-      console.log('web3Provider', web3Provider)
-
-      const module_var = await ECDSAOwnershipValidationModule.create({
-        signer: web3Provider.getSigner(),
-        moduleAddress: DEFAULT_ECDSA_OWNERSHIP_MODULE,
+      // Create the Safe EthersAdapter
+      const ethAdapter = new EthersAdapter({
+        ethers,
+        signerOrProvider: signer,
       })
-      console.log(module_var.signer)
-      setSigner(module_var.signer)
 
-      const biconomySmartAccount = await BiconomySmartAccountV2.create({
-        chainId: ChainId.POLYGON_MUMBAI,
-        bundler: bundler,
-        paymaster: paymaster,
-        entryPointAddress: DEFAULT_ENTRYPOINT_ADDRESS,
-        defaultValidationModule: module_var,
-        activeValidationModule: module_var,
+      // Instantiate the protocolKit
+      const protocolKit = await SafeFactory.create({
+        ethAdapter,
       })
-      const accounts = await web3Provider.listAccounts()
-      setAddress(accounts[0])
-      console.log({ biconomySmartAccount })
-
-      setSmartAccount(biconomySmartAccount)
-      setLoading(false)
-    } catch (error) {
-      console.log(error)
+    } catch (err) {
+      console.log(err)
     }
+
+    //   setLoading(true)
+    //   const userInfo = await particle.auth.login()
+
+    //   console.log('Logged in user:', userInfo)
+    //   setName(userInfo?.name)
+    //   const particleProvider = new ParticleProvider(particle.auth)
+    //   console.log('Particle Provider', particleProvider)
+    //   console.log(particle.getChain())
+    //   const web3Provider = new ethers.providers.Web3Provider(particleProvider)
+    //   setProvider(web3Provider)
+    //   console.log('web3Provider', web3Provider)
+
+    //   const module_var = await ECDSAOwnershipValidationModule.create({
+    //     signer: web3Provider.getSigner(),
+    //     moduleAddress: DEFAULT_ECDSA_OWNERSHIP_MODULE,
+    //   })
+    //   console.log(module_var.signer)
+    //   setSigner(module_var.signer)
+
+    //   const biconomySmartAccount = await BiconomySmartAccountV2.create({
+    //     chainId: ChainId.POLYGON_MUMBAI,
+    //     bundler: bundler,
+    //     paymaster: paymaster,
+    //     entryPointAddress: DEFAULT_ENTRYPOINT_ADDRESS,
+    //     defaultValidationModule: module_var,
+    //     activeValidationModule: module_var,
+    //   })
+    //   const accounts = await web3Provider.listAccounts()
+    //   setAddress(accounts[0])
+    //   console.log({ biconomySmartAccount })
+
+    //   setSmartAccount(biconomySmartAccount)
+    //   setLoading(false)
+    // } catch (error) {
+    //   console.log(error)
+    // }
   }
 
   const bundler: IBundler = new Bundler({
@@ -113,7 +148,7 @@ const TicketClaimSection = ({ query }) => {
     paymasterUrl: PAYMASTER_URL,
   })
 
-  const handleEncryptandPin = async () => {
+  const handleEncryptandPin = async (provider, address) => {
     console.log(provider, address)
     // Initialize Lit Protocol SDK
     const litClient = new LitJsSdk.LitNodeClient()

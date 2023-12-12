@@ -30,6 +30,10 @@ import axios from 'axios'
 import { CallWithERC2771Request, GelatoRelay } from '@gelatonetwork/relay-sdk'
 import { client } from '@/components/ApolloClient'
 import FETCH_HOLDER_TICKETS from '@/graphql/query/fetchHolderTickets'
+import Safe, { EthersAdapter } from '@safe-global/protocol-kit'
+import { GelatoRelayPack } from '@safe-global/relay-kit'
+import { MetaTransactionData } from '@safe-global/safe-core-sdk-types'
+import { SafeAuthPack } from '@safe-global/auth-kit'
 
 interface Props {
   smartAccount: BiconomySmartAccountV2 | null
@@ -143,97 +147,153 @@ const Minter: React.FC<Props> = ({
   // }, [smartAccount, provider, address])
 
   const handleMint = useCallback(async () => {
-    if (smartAccount && provider && address) {
-      const secretHash = handleEncryptandPin()
-      const abi = [
-        contracts?.[chainId][0]?.contracts?.['SimplrEvents']?.['abi'].find(
-          (el) => el.name === 'mintTicket',
-        ),
-      ]
-      const contract = new ethers.Contract(NFT_ADDRESS, abi, provider)
-      try {
-        const toast1 = toast.info('Wrapping up your Gift....', {
-          position: 'top-right',
-          autoClose: 15000,
-          hideProgressBar: false,
-          closeOnClick: true,
-          pauseOnHover: true,
-          draggable: true,
-          progress: undefined,
-          theme: 'dark',
-        })
-        const minTx = await contract.populateTransaction.mintTicket(
-          address,
-          BigNumber.from(query?.batchid),
-          hashQueryData(query),
-          secretHash,
-          proofs,
-        )
-        const tx1 = {
+    // if (provider && address) {
+    const safeAuthInitOptions: SafeAuthInitOptions = {
+      enableLogging: true,
+      buildEnv: 'testing',
+      chainConfig: {
+        chainId: '0x13881',
+        rpcTarget: `https://gnosis.drpc.org`,
+      },
+    }
+    const safeAuthPack = new SafeAuthPack()
+    await safeAuthPack.init(safeAuthInitOptions)
+    // The signIn() method returns the user's Ethereum address and the associated Safe addresses
+    // The `await` will last until the user is authenticated. Therefore, it will be active while the authentication popup is being displayed.
+    const authKitSignData = await safeAuthPack.signIn()
+    console.log('AUTH KIT DATA:', authKitSignData)
+    const web3provider = new ethers.providers.Web3Provider(
+      safeAuthPack.getProvider(),
+    )
+    const signer = web3provider.getSigner()
+    console.log('WEb Provider:', web3provider)
+    console.log('SIGNER:', signer)
+    // const accounts = await web3provider.listAccounts()
+    // setAddress(authKitSignData.eoa)
+    const newaddress = authKitSignData.eoa
+    console.log('AUTH SIGN DATA:', authKitSignData)
+    console.log('NEW ADD:', newaddress)
+    const secretHash = handleEncryptandPin(web3provider, newaddress)
+    const abi = [
+      contracts?.[chainId][0]?.contracts?.['SimplrEvents']?.['abi'].find(
+        (el) => el.name === 'mintTicket',
+      ),
+    ]
+    const contract = new ethers.Contract(NFT_ADDRESS, abi, web3provider)
+    try {
+      const toast1 = toast.info('Wrapping up your Gift....', {
+        position: 'top-right',
+        autoClose: 15000,
+        hideProgressBar: false,
+        closeOnClick: true,
+        pauseOnHover: true,
+        draggable: true,
+        progress: undefined,
+        theme: 'dark',
+      })
+      const minTx = await contract.populateTransaction.mintTicket(
+        newaddress,
+        BigNumber.from(query?.batchid),
+        hashQueryData(query),
+        secretHash,
+        proofs,
+      )
+      const withdrawAmount = ethers.parseUnits('0.005', 'ether').toString()
+      const tx1: MetaTransactionData[] = [
+        {
           to: NFT_ADDRESS,
           data: minTx.data,
-        }
-        console.log({ tx1 })
+          value: withdrawAmount,
+        },
+      ]
+      console.log({ tx1 })
 
-        const userOp = await smartAccount.buildUserOp([tx1])
-        console.log({ userOp, smartAccount })
+      const ethAdapter = new EthersAdapter({
+        ethers,
+        signerOrProvider: signer,
+      })
 
-        const biconomyPaymaster =
-          smartAccount.paymaster as IHybridPaymaster<SponsorUserOperationDto>
-        console.log({ biconomyPaymaster })
+      const protocolKit = await Safe.create({
+        ethAdapter,
+      })
 
-        const paymasterServiceData: SponsorUserOperationDto = {
-          mode: PaymasterMode.SPONSORED,
-          smartAccountInfo: {
-            name: 'BICONOMY',
-            version: '2.0.0',
-          },
-        }
-        console.log({ paymasterServiceData })
+      const relayKit = new GelatoRelayPack({ protocolKit })
 
-        const paymasterAndDataResponse =
-          await biconomyPaymaster.getPaymasterAndData(
-            userOp,
-            paymasterServiceData,
-          )
-        console.log({ paymasterAndDataResponse })
+      const safeTransaction = await relayKit.createRelayedTransaction({
+        tx1,
+      })
 
-        userOp.paymasterAndData = paymasterAndDataResponse.paymasterAndData
-        console.log({ smartAccount, paymasterAndDataResponse, userOp })
-        const userOpResponse = await smartAccount.sendUserOp(userOp)
-        console.log({ userOpResponse })
-        const { receipt } = await userOpResponse.wait(1)
-        setMinted(true)
-        toast.success(
-          `🪔✨ Your gift has sparked joy! 🎁 May it light up your loved one's Diwali. ✨`,
-          {
-            position: 'top-right',
-            autoClose: 18000,
-            hideProgressBar: false,
-            closeOnClick: true,
-            pauseOnHover: true,
-            draggable: true,
-            progress: undefined,
-            theme: 'dark',
-          },
-        )
-        console.log({ txHash: receipt.transactionHash })
-      } catch (err) {
-        console.error({ err })
-        toast.clearWaitingQueue({ containerId: 'toaster' })
-        toast.error(`Something Went Wrong!`, {
-          position: 'top-right',
-          autoClose: 18000,
-          hideProgressBar: false,
-          closeOnClick: true,
-          pauseOnHover: true,
-          draggable: true,
-          progress: undefined,
-          theme: 'dark',
-        })
-      }
+      const signedSafeTransaction = await protocolKit.signTransaction(
+        safeTransaction,
+      )
+
+      const response = await relayKit.executeRelayTransaction(
+        signedSafeTransaction,
+      )
+
+      console.log(
+        `Relay Transaction Task ID: https://relay.gelato.digital/tasks/status/${response.taskId}`,
+      )
+
+      // const userOp = await smartAccount.buildUserOp([tx1])
+      // console.log({ userOp, smartAccount })
+
+      // const biconomyPaymaster =
+      //   smartAccount.paymaster as IHybridPaymaster<SponsorUserOperationDto>
+      // console.log({ biconomyPaymaster })
+
+      // const paymasterServiceData: SponsorUserOperationDto = {
+      //   mode: PaymasterMode.SPONSORED,
+      //   smartAccountInfo: {
+      //     name: 'BICONOMY',
+      //     version: '2.0.0',
+      //   },
+      // }
+      // console.log({ paymasterServiceData })
+
+      // const paymasterAndDataResponse =
+      //   await biconomyPaymaster.getPaymasterAndData(
+      //     userOp,
+      //     paymasterServiceData,
+      //   )
+      // console.log({ paymasterAndDataResponse })
+
+      // userOp.paymasterAndData = paymasterAndDataResponse.paymasterAndData
+      // console.log({ smartAccount, paymasterAndDataResponse, userOp })
+      // const userOpResponse = await smartAccount.sendUserOp(userOp)
+      // console.log({ userOpResponse })
+      // const { receipt } = await userOpResponse.wait(1)
+      // setMinted(true)
+      // toast.success(
+      //   `🪔✨ Your gift has sparked joy! 🎁 May it light up your loved one's Diwali. ✨`,
+      //   {
+      //     position: 'top-right',
+      //     autoClose: 18000,
+      //     hideProgressBar: false,
+      //     closeOnClick: true,
+      //     pauseOnHover: true,
+      //     draggable: true,
+      //     progress: undefined,
+      //     theme: 'dark',
+      //   },
+      // )
+      // console.log({ txHash: receipt.transactionHash })
+    } catch (err) {
+      console.error({ err })
+      toast.clearWaitingQueue({ containerId: 'toaster' })
+      toast.error(`Something Went Wrong!`, {
+        position: 'top-right',
+        autoClose: 18000,
+        hideProgressBar: false,
+        closeOnClick: true,
+        pauseOnHover: true,
+        draggable: true,
+        progress: undefined,
+        theme: 'dark',
+      })
     }
-  }, [smartAccount, provider, address])
+    // }
+  }, [provider, address])
 
   useEffect(() => {
     if (smartAccount && provider && address) handleMint()
@@ -294,13 +354,13 @@ const Minter: React.FC<Props> = ({
   }
 
   useEffect(() => {
-    if (smartAccount && provider && address) handleMint()
-  }, [handleMint, smartAccount, provider, address])
+    if (provider && address) handleMint()
+  }, [handleMint, provider, address])
 
   return (
     <>
       <div className="mt-2">
-        <button className="rounded bg-blue-600 p-2" onClick={connect}>
+        <button className="rounded bg-blue-600 p-2" onClick={handleMint}>
           <p className="text-md font-['Cinzel'] font-semibold text-white">
             Login & Claim your ticket
           </p>
